@@ -6,6 +6,16 @@
 [![Hardware: DIGIPASS 870](https://img.shields.io/badge/Hardware-VASCO%20%2F%20OneSpan%20870-brightgreen.svg)](https://www.onespan.com)
 [![Authored by: AI](https://img.shields.io/badge/Authored%20by-Google%20Antigravity%20AI-purple.svg)](https://deepmind.google)
 
+> [!WARNING]
+> ### ⚠️ IMPORTANT DISCLAIMER: COMMUNITY WORKAROUND
+> **I did NOT make the OneSpan NativeBridge software, the DIGIPASS card reader, or the Belfius banking system.**
+>
+> This repository is simply a **personal workaround** that I developed and use on my own computer to get my Belfius card reader working on Linux. I am publishing this open-source **solely because it might help other Linux users** who are stuck with the same issue.
+>
+> * This project is completely independent and **not affiliated with, endorsed by, or associated with Belfius Bank SA/NV or OneSpan Inc.**
+> * All trademarks, logos, and brand names are the property of their respective owners.
+> * Provided "as is" without warranty of any kind. Use at your own discretion.
+
 A turnkey, plug-and-play solution to run the **OneSpan (VASCO) DIGIPASS 870** smartcard reader natively on **Linux** for **Belfius Direct Net** online banking (`https://www.belfius.be`) via USB cable.
 
 ---
@@ -14,6 +24,7 @@ A turnkey, plug-and-play solution to run the **OneSpan (VASCO) DIGIPASS 870** sm
 
 - [AI Authorship Disclosure](#ai-authorship-disclosure)
 - [Project Overview](#project-overview)
+- [Support for Other Banks & Services](#support-for-other-banks--services)
 - [The Problem (Why it Fails by Default)](#the-problem-why-it-fails-by-default)
   - [1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug](#1-the-64-bit-wine-scard_autoallocate-bug)
   - [2. The Runaway Watchdog Process Fork-Bomb](#2-the-runaway-watchdog-process-fork-bomb)
@@ -49,6 +60,18 @@ When you navigate to `https://www.belfius.be` in any web browser, the website co
 Belfius **does not provide a Linux build** of NativeBridge. Running the Windows binary under Wine or Bottles historically failed with the website stuck indefinitely on **"Insert your card"**, even when the card reader was plugged in and detected.
 
 **This project completely solves that problem.**
+
+---
+
+## Support for Other Banks & Services
+
+Although this project was created and tested specifically for **Belfius Direct Net**, the underlying software (`digipass-nativebridge.exe`) is **standard OneSpan (formerly VASCO Data Security) commercial software**, not proprietary Belfius code.
+
+Because this workaround fixes the core Windows-to-Linux PC/SC smartcard ABI translation in Wine, it is expected to work for other platforms that utilize OneSpan's USB DIGIPASS bridge:
+
+* **Isabel 6 (Belgian Business Multi-Banking)**: Used by thousands of Belgian businesses to manage accounts across Belfius, BNP Paribas Fortis, ING, KBC, and CBC. Organizations using USB-connected DIGIPASS 870 readers with Isabel use this same bridge architecture.
+* **Crelan & Other Financial Institutions**: Banks in Belgium and across Europe that issue OneSpan/VASCO DIGIPASS smartcard readers with USB cable connectivity and web browser integration.
+* **Note on Offline Readers**: Banks like KBC, Argenta, and ING (retail) frequently use "standalone/offline" card readers where you type numerical codes directly on the keypad without a USB connection. Those readers do not use or require any PC bridge software.
 
 ---
 
