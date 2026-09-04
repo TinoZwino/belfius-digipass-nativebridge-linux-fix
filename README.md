@@ -18,183 +18,241 @@
 > * **Use At Your Own Risk**: Provided strictly "as is", without warranty or guarantee of any kind.
 > * **Not Affiliated**: This project is completely independent and is not affiliated with or endorsed by Belfius Bank SA/NV or OneSpan Inc.
 
-A turnkey, plug-and-play solution to run the **OneSpan (VASCO) DIGIPASS 870** smartcard reader natively on **Linux** for **Belfius Direct Net** online banking (`https://www.belfius.be`) via USB cable.
+A simple, automated fix to make the **VASCO / OneSpan DIGIPASS 870** card reader work on **Linux** for **Belfius Direct Net** (`https://www.belfius.be`) via USB cable.
 
 ---
 
-## Table of Contents
+## What This Does
 
-- [Project Overview](#project-overview)
-- [Support for Other Banks & Services](#support-for-other-banks--services)
-- [Prerequisites & Supported Distributions](#prerequisites--supported-distributions)
-- [Web Browser Compatibility & Permissions](#web-browser-compatibility--permissions)
-- [Installation Tutorial](#installation-tutorial)
-  - [Method A: Automated Installation (Recommended)](#method-a-automated-installation-recommended)
-  - [Method B: Manual Installation](#method-b-manual-installation)
-  - [Upgrading to a New Version](#upgrading-to-a-new-version-of-nativebridge)
-  - [Custom Wine Prefix](#custom-wine-prefix)
-- [How to Log In to Belfius](#how-to-log-in-to-belfius)
-- [Service Management & Troubleshooting](#service-management--troubleshooting)
-- [The Problem (Why it Fails by Default)](#the-problem-why-it-fails-by-default)
-  - [1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug](#1-the-64-bit-wine-scard_autoallocate-bug)
-  - [2. The Runaway Watchdog Process Fork-Bomb](#2-the-runaway-watchdog-process-fork-bomb)
-  - [3. Flatpak / Bottles Sandbox Confinement](#3-flatpak--bottles-sandbox-confinement)
-- [How the Fix Works](#how-the-fix-works)
-- [Technical Upstream Notes (for WineHQ)](#technical-upstream-notes-for-winehq)
-- [Uninstallation](#uninstallation)
-- [License](#license)
+To log in using a USB cable on Belfius online banking, Belfius uses a Windows program called **OneSpan NativeBridge**. Belfius does not make a Linux version. Running the Windows app in standard Wine fails because of a technical bug in Wine's smartcard translation layer (the website stays stuck on *"Insert your card"*).
+
+This project fixes that bug with a tiny helper (`pcsc_shim.so`) and sets up everything automatically so your card reader and bank card work out-of-the-box in your web browser.
 
 ---
 
-## Project Overview
+## Quick Start (Installation)
 
-Belgian bank **Belfius** uses the **VASCO / OneSpan DIGIPASS 870** card reader for secure, high-limit online banking authentication. On Windows and macOS, Belfius provides a proprietary helper application called **OneSpan NativeBridge** (`digipass-nativebridge.exe`). 
+### 1. Install System Requirements
 
-When you navigate to `https://www.belfius.be` in any web browser, the website connects to a local WebSocket / HTTP server hosted on `127.0.0.1` (ports `42579` and `42580`) managed by NativeBridge. This bridge talks to the smartcard reader via Windows PC/SC APIs (`winscard.dll`), asks the reader to display security information, prompts the user to enter their PIN directly on the reader's physical keypad, and returns cryptographically signed APDU responses back to the bank.
+Run the command for your Linux distribution:
 
-Belfius **does not provide a Linux build** of NativeBridge. Running the Windows binary under Wine or Bottles historically failed with the website stuck indefinitely on **"Insert your card"**, even when the card reader was plugged in and detected.
+* **Fedora / RHEL:**
+  ```bash
+  sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc
+  sudo systemctl enable --now pcscd
+  ```
 
-**This project completely solves that problem.**
+* **Ubuntu / Debian / Linux Mint / Pop!_OS:**
+  ```bash
+  sudo apt update && sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential
+  sudo systemctl enable --now pcscd
+  ```
 
----
+* **Arch Linux / Manjaro:**
+  ```bash
+  sudo pacman -S wine pcsclite ccid gcc
+  sudo systemctl enable --now pcscd
+  ```
 
-## Support for Other Banks & Services
+* **openSUSE:**
+  ```bash
+  sudo zypper install wine pcsc-lite pcsc-ccid gcc
+  sudo systemctl enable --now pcscd
+  ```
 
-Although this project was created and tested specifically for **Belfius Direct Net**, the underlying software (`digipass-nativebridge.exe`) is **standard OneSpan (formerly VASCO Data Security) commercial software**, not proprietary Belfius code.
+<details>
+<summary><b>Click to see full OS compatibility table & details</b></summary>
 
-Because this workaround fixes the core Windows-to-Linux PC/SC smartcard ABI translation in Wine, it is expected to work for other platforms that utilize OneSpan's USB DIGIPASS bridge:
-
-* **Isabel 6 (Belgian Business Multi-Banking)**: Used by thousands of Belgian businesses to manage accounts across Belfius, BNP Paribas Fortis, ING, KBC, and CBC. Organizations using USB-connected DIGIPASS 870 readers with Isabel use this same bridge architecture.
-* **Crelan & Other Financial Institutions**: Banks in Belgium and across Europe that issue OneSpan/VASCO DIGIPASS smartcard readers with USB cable connectivity and web browser integration.
-* **Note on Offline Readers**: Banks like KBC, Argenta, and ING (retail) frequently use "standalone/offline" card readers where you type numerical codes directly on the keypad without a USB connection. Those readers do not use or require any PC bridge software.
-
----
-
-## Prerequisites & Supported Distributions
-
-`install.sh` **automatically detects your Linux distribution** and will print the exact package installation command for your specific system if any dependency is missing.
-
-### OS Compatibility Matrix
-
-| Distribution | Versions | Compatibility Status | Package Manager Command |
+| Distribution | Versions | Status | Package Manager Command |
 | :--- | :--- | :---: | :--- |
-| **Fedora** | 39, 40, 41, Rawhide | **Fully Tested** | `sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc` |
-| **Ubuntu** | 22.04 LTS, 24.04 LTS, 24.10+ | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
-| **Debian** | 12 (Bookworm), 13 (Trixie), Sid | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
-| **Linux Mint** | 21, 22+ | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
-| **Pop!_OS / Zorin OS** | Current releases | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
-| **Arch Linux** | Rolling | **Fully Supported** | `sudo pacman -S wine pcsclite ccid gcc` |
-| **Manjaro / EndeavourOS** | Rolling | **Fully Supported** | `sudo pacman -S wine pcsclite ccid gcc` |
-| **openSUSE** | Tumbleweed, Leap 15.5+ | **Fully Supported** | `sudo zypper install wine pcsc-lite pcsc-ccid gcc` |
-| **RHEL / Alma / Rocky** | 9.x, 10.x | **Fully Supported** | `sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc` |
-| **Fedora Silverblue / Bazzite** | Atomic / Immutable | **Supported** | `rpm-ostree install wine-smartcard pcsc-lite pcsc-lite-ccid` |
-| **Non-systemd (Void, Alpine)** | Current | **Supported** | Auto-configures XDG `~/.config/autostart` desktop fallback |
+| **Fedora** | 39, 40, 41+ | Fully Tested | `sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc` |
+| **Ubuntu** | 22.04 LTS, 24.04 LTS, 24.10+ | Fully Supported | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Debian** | 12, 13, Sid | Fully Supported | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Linux Mint** | 21, 22+ | Fully Supported | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Pop!_OS / Zorin** | Current | Fully Supported | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Arch / Manjaro** | Rolling | Fully Supported | `sudo pacman -S wine pcsclite ccid gcc` |
+| **openSUSE** | Tumbleweed, Leap | Fully Supported | `sudo zypper install wine pcsc-lite pcsc-ccid gcc` |
+| **RHEL / Alma / Rocky** | 9.x, 10.x | Fully Supported | `sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc` |
+| **Fedora Silverblue / Bazzite** | Immutable / Atomic | Supported | `rpm-ostree install wine-smartcard pcsc-lite pcsc-lite-ccid` |
+| **Void / Alpine** | Non-systemd | Supported | Auto-configures `~/.config/autostart` desktop fallback |
 
-> **Smartcard Daemon Check**: You can verify that your card reader is recognized by running:
-> ```bash
-> pcsc_scan
-> ```
-> When you insert your bank card, it should output `Card state: Card inserted` and print the card's ATR string. Press `Ctrl+C` to exit.
+> **Smartcard check**: You can verify your card reader is detected by running `pcsc_scan`. Insert your card and it will print `Card state: Card inserted`. Press `Ctrl+C` to quit.
+
+</details>
 
 ---
 
-## Web Browser Compatibility & Permissions
+### 2. Run the Installer
 
-Because OneSpan NativeBridge communicates over standard local HTTP/WebSocket loopback (`127.0.0.1:42579` and `127.0.0.1:42580`), it is **universal and completely browser-agnostic**.
-
-Every major Linux browser is supported, including:
-* **Firefox-based**: Mozilla Firefox, Zen Browser, LibreWolf, Floorp, Waterfox
-* **Chromium-based**: Google Chrome, Helium Browser, Brave, Chromium, Microsoft Edge, Vivaldi, Opera
-* **Packaging formats**: Native (`.deb`, `.rpm`, `pacman`), Flatpak, and Snap (Flatpak/Snap browsers have `--share=network` by default, allowing local loopback connections without modifying sandbox permissions).
-
-> [!IMPORTANT]
-> ### ⚠️ Browser Permission Required (Allow Access to Apps / Local Network)
-> When you click **"Met USB-kabel"** on the Belfius login page for the first time, modern browsers will display a security permission dialog asking for permission to open or communicate with external applications on your computer (e.g., *"Allow belfius.be to open this application"* or *"Allow belfius.be to access apps / devices on your local network"*).
->
-> You **must click "Allow"** (*Toestaan* / *Autoriser*). If you dismiss or block this dialog, the browser will prevent JavaScript from connecting to the bridge on `127.0.0.1`, and the website will remain stuck on the login screen.
-
-### No Browser Extension Required
-Belfius connects directly to the local bridge process via standard JavaScript `fetch()` and `WebSocket()` requests on localhost. **No browser extension or add-on is required.**
-
----
-
-## Installation Tutorial
-
-> **Binary Verification**:
-> The official Belfius/OneSpan installer `digipass-nativebridge-installer.exe` has the following cryptographic hash:
-> - **SHA-256**: `e3c70d7fb4e7f5c388d301dcf82aea6c9070691f020a831a10aa6e691893bd27`
-> The installer script automatically verifies this hash before execution.
-
-### Method A: Automated Installation (Recommended)
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/TinoZwino/belfius-digipass-nativebridge-linux-fix.git
-   cd belfius-digipass-nativebridge-linux-fix
-   ```
-
-2. Make the installer executable:
-   ```bash
-   chmod +x install.sh uninstall.sh
-   ```
-
-3. Run the installer:
-   ```bash
-   ./install.sh
-   ```
+```bash
+git clone https://github.com/TinoZwino/belfius-digipass-nativebridge-linux-fix.git
+cd belfius-digipass-nativebridge-linux-fix
+chmod +x install.sh uninstall.sh
+./install.sh
+```
 
 **What the installer does automatically:**
-- [x] Protects against running with `sudo` (ensures user-level installation).
-- [x] Detects distribution and verifies all required dependencies (`wine`, `gcc`/`clang`, `pcscd`, `libpcsclite`).
-- [x] Dynamically finds the OneSpan NativeBridge executable anywhere in the Wine prefix.
-- [x] Automatically verifies the SHA-256 checksum of `digipass-nativebridge-installer.exe`.
-- [x] Compiles `pcsc_shim.c` into `~/.local/lib/libpcsc_wine_shim.so`.
-- [x] Deletes the runaway watchdog monitor from Wine's startup registry.
-- [x] Installs and starts the `digipass-nativebridge.service` user systemd service (or XDG desktop autostart on non-systemd distros).
-- [x] Creates a convenient CLI command: `digipass-nativebridge`.
+- Checks your system packages and warns you if anything is missing.
+- Runs the official Windows installer via Wine (if not already installed).
+- Automatically verifies the installer hash (`SHA-256: e3c70d7fb4e7f5c388d301dcf82aea6c9070691f020a831a10aa6e691893bd27`).
+- Compiles the lightweight shim (`pcsc_shim.c`) into `~/.local/lib/libpcsc_wine_shim.so`.
+- Disables the buggy Windows monitor loop that leaks processes in Wine.
+- Starts a background user service (`digipass-nativebridge.service`) that automatically runs on boot.
+
+<details>
+<summary><b>Click for advanced options (Upgrading or Custom Wine Prefix)</b></summary>
 
 #### Upgrading to a New Version of NativeBridge
-When Belfius releases a new version of `digipass-nativebridge-installer.exe`, simply drop the new installer into the directory and run:
+When Belfius releases an updated `digipass-nativebridge-installer.exe`, drop the new installer into the directory and run:
 ```bash
 ./install.sh --upgrade
 ```
 
 #### Custom Wine Prefix
-To install into a dedicated or custom Wine prefix rather than `~/.wine`:
+If you want to keep the banking bridge in an isolated Wine prefix instead of `~/.wine`:
 ```bash
 WINEPREFIX="$HOME/.local/share/wineprefixes/belfius" ./install.sh
 ```
 
+</details>
+
 ---
 
-### Method B: Manual Installation
+## How to Log In to Belfius
 
-If you prefer to perform the installation steps manually:
+1. Connect your **DIGIPASS 870** reader via USB to your computer.
+2. Insert your **Belfius Bank Card** into the reader.
+3. Open your favorite web browser (Firefox, Chrome, Zen, Helium, Brave, Edge, etc.).
+4. Go to **[Belfius Aanmelden](https://www.belfius.be/retail/nl/mijn-belfius/index.aspx?appkey=FEED)**.
+5. Click **"Met USB-kabel"** (*With USB cable*).
+6. **Important Browser Prompt**: If your browser shows a popup asking to access apps or open an application, click **Allow** (*Toestaan* / *Autoriser*).
+7. The website will recognize your card reader immediately.
+8. Follow the instructions on the card reader screen, enter your PIN on the keypad, and press **OK**. You are logged in!
 
-1. **Install the Windows application via Wine**:
+<details>
+<summary><b>Click for browser compatibility & permission details</b></summary>
+
+All browsers (Firefox, Chrome, Zen, Helium, Brave, Edge, LibreWolf, Floorp, Vivaldi, Opera) are supported, whether installed natively, via Flatpak, or via Snap.
+
+**Why the permission prompt appears:**
+Belfius connects to the local bridge process on `127.0.0.1`. Modern web browsers protect users by asking for permission before a website can talk to local applications. You must click **"Allow"**, otherwise the browser blocks the connection.
+
+No browser extension or add-on is required.
+
+</details>
+
+---
+
+## Useful Commands
+
+* **Check if the service is running:**
+  ```bash
+  systemctl --user status digipass-nativebridge.service
+  ```
+* **Restart the service:**
+  ```bash
+  systemctl --user restart digipass-nativebridge.service
+  ```
+* **View logs:**
+  ```bash
+  journalctl --user -u digipass-nativebridge.service -f
+  ```
+* **Uninstall:**
+  ```bash
+  ./uninstall.sh
+  ```
+
+---
+
+<details>
+<summary><b>Support for Other Banks & Services (Isabel 6, Crelan)</b></summary>
+
+Although this fix was created for **Belfius**, the bridge program (`digipass-nativebridge.exe`) is standard commercial software from **OneSpan** (formerly VASCO Data Security).
+
+Because this fix repairs the underlying smartcard connection in Wine, it also works for other services using OneSpan USB card readers:
+* **Isabel 6**: The Belgian multi-banking portal used by businesses to access Belfius, BNP Paribas Fortis, ING, and KBC.
+* **Crelan & others**: Other financial institutions issuing OneSpan DIGIPASS USB readers.
+
+*(Note: Banks like KBC, Argenta, or ING retail that use offline card readers without a USB cable do not need any software at all).*
+
+</details>
+
+---
+
+<details>
+<summary><b>Technical Deep Dive: Why it fails by default in Wine</b></summary>
+
+Three problems prevent the official Windows software from working out-of-the-box in Wine:
+
+### 1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug
+The bridge queries the smartcard's ATR string using Windows PC/SC:
+```c
+SCardGetAttrib(hCard, SCARD_ATTR_ATR_STRING, (LPBYTE)&pbAttr, &dwAttrLen);
+```
+In the Windows SDK, automatic buffer allocation uses:
+```c
+#define SCARD_AUTOALLOCATE (DWORD)(-1) /* 0xFFFFFFFF */
+```
+Under 64-bit Wine, Wine zero-extends the 32-bit value to 64 bits:
+```c
+(unsigned long)0xFFFFFFFF  ==>  0x00000000FFFFFFFF
+```
+However, Linux 64-bit PC/SC Lite defines:
+```c
+#define SCARD_AUTOALLOCATE ((unsigned long)-1) /* 0xFFFFFFFFFFFFFFFF */
+```
+Because `0x00000000FFFFFFFF != 0xFFFFFFFFFFFFFFFF`, Linux `libpcsclite` rejects the request with error `0x80100008` (`SCARD_E_INSUFFICIENT_BUFFER`). The card initialization fails with `"Internal error"`, and the browser stays stuck on *"Insert your card"*.
+
+### 2. The Runaway Watchdog Process Loop
+The installer adds `digipass-nativebridge-monitor.exe` to Wine's `Run` registry key. This watchdog checks if the bridge is running by calling `WTSEnumerateProcessesA`. Wine stubs this function to return 0. The watchdog assumes the bridge crashed and spawns a new bridge instance every second, eventually freezing the system with hundreds of Wine processes.
+
+### 3. Flatpak Sandboxing
+Running inside Flatpak sandboxes (like Bottles) blocks access to the host smartcard daemon socket (`/run/pcscd/pcscd.comm`).
+
+</details>
+
+---
+
+<details>
+<summary><b>Technical Deep Dive: How this fix works</b></summary>
+
+1. **PC/SC ABI Shim (`pcsc_shim.c`)**:
+   A small C library loaded via `LD_PRELOAD` intercepts `SCardGetAttrib`:
+   ```c
+   if (pcbAttrLen && *pcbAttrLen == 0xFFFFFFFFUL) {
+       *pcbAttrLen = ((unsigned long)-1); /* Translates to 64-bit -1 */
+   }
+   ```
+   `libpcsclite` now recognizes the allocation request, returns `SCARD_S_SUCCESS`, and card detection works. The shim also handles `SCARD_PROTOCOL_T0` fallback during reader negotiation.
+
+2. **Watchdog Removal**:
+   The installer removes `DigipassNativeBridge` from Wine's startup registry, stopping the process leak permanently.
+
+3. **Managed Systemd User Service**:
+   A standard user `systemd` unit runs the bridge cleanly in the background with auto-restart and zero overhead.
+
+</details>
+
+---
+
+<details>
+<summary><b>Method B: Manual Installation (Without the script)</b></summary>
+
+1. **Install Windows app in Wine:**
    ```bash
    wine digipass-nativebridge-installer.exe
    ```
-   Follow the on-screen installer wizard.
-
-2. **Disable the buggy watchdog monitor in Wine registry**:
+2. **Remove buggy monitor from Wine registry:**
    ```bash
    wine reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v DigipassNativeBridge /f
    killall -q digipass-nativebridge-monitor.exe 2>/dev/null || true
    ```
-
-3. **Compile the PC/SC Shim**:
+3. **Compile the shim:**
    ```bash
    mkdir -p ~/.local/lib
    gcc -Wall -Wextra -shared -fPIC -O2 -o ~/.local/lib/libpcsc_wine_shim.so pcsc_shim.c -ldl
    ```
-
-4. **Create the systemd user service**:
-   Find your bridge executable path:
-   ```bash
-   BRIDGE_DIR=$(find "$HOME/.wine/drive_c/users" -type d -name "NativeBridge" 2>/dev/null | head -n 1)
-   ```
-   Create `~/.config/systemd/user/digipass-nativebridge.service`:
+4. **Create `~/.config/systemd/user/digipass-nativebridge.service`:**
    ```ini
    [Unit]
    Description=OneSpan DIGIPASS Native Bridge (Wine with PC/SC Shim)
@@ -215,149 +273,22 @@ If you prefer to perform the installation steps manually:
    WantedBy=default.target
    ```
    *(Replace `YOUR_USER` with your Linux username)*
-
-5. **Enable and start the service**:
+5. **Enable and start:**
    ```bash
    systemctl --user daemon-reload
    systemctl --user enable --now digipass-nativebridge.service
    ```
 
----
-
-## How to Log In to Belfius
-
-1. Connect your **VASCO DIGIPASS 870** reader via USB to your computer.
-2. Insert your **Belfius Bank Card** into the reader.
-3. Open your favorite web browser (Google Chrome, Mozilla Firefox, Brave, Microsoft Edge, Zen, etc.).
-4. Navigate to **[Belfius Aanmelden / Connexion](https://www.belfius.be/retail/nl/mijn-belfius/index.aspx?appkey=FEED)**.
-5. Click **"Met USB-kabel"** (*With USB cable*). If prompted by your browser with a security dialog asking to access apps or open an application, click **Allow** (*Toestaan* / *Autoriser*).
-6. The website will immediately detect the bridge and the card reader.
-7. Follow the prompt on the physical DIGIPASS 870 screen, enter your PIN on the keypad, and press **OK**.
-8. You are securely logged in to Belfius Direct Net!
+</details>
 
 ---
 
-## Service Management & Troubleshooting
+<details>
+<summary><b>Notes for Wine Developers (Upstream Fix)</b></summary>
 
-### Check Status
-```bash
-systemctl --user status digipass-nativebridge.service
-```
-You should see `Active: active (running)` and `wine digipass-nativebridge.exe`.
+In `dlls/winscard/unixlib.c` and `winscard.c`, when `SCardGetAttrib` receives a `pcbAttrLen` parameter on 64-bit systems, Wine should check whether `*pcbAttrLen == 0xFFFFFFFF` (`SCARD_AUTOALLOCATE` in 32-bit Win32 API) and translate it to host `(unsigned long)-1` (`SCARD_AUTOALLOCATE` in Linux PC/SC Lite). Currently passing `0x00000000FFFFFFFF` causes Linux `pcsclite` to fail with `SCARD_E_INSUFFICIENT_BUFFER`.
 
-### Check Network Ports
-The bridge must be listening on TCP `127.0.0.1:42579` and `127.0.0.1:42580`:
-```bash
-ss -tulpn | grep 425
-```
-
-### Inspect Logs
-The service logs directly to your user systemd journal without exposing world-readable files:
-```bash
-journalctl --user -u digipass-nativebridge.service -f
-```
-If you need to enable verbose smartcard shim debugging, set `PCSC_SHIM_DEBUG=1`:
-```bash
-PCSC_SHIM_DEBUG=1 digipass-nativebridge
-```
-Expected debug output during successful card detection:
-```text
-[PCSC_SHIM pid=...] SCardConnect(reader='VASCO DIGIPASS 870...', share=2, prefProto=3)
-[PCSC_SHIM pid=...] SCardGetAttrib: Fixed SCARD_AUTOALLOCATE (0xffffffff -> -1)
-[PCSC_SHIM pid=...] SCardGetAttrib(...) -> ret=0x0, out_len=20
-[PCSC_SHIM pid=...]   autoallocated buffer ptr=0x...
-```
-
-### Restart Service
-```bash
-systemctl --user restart digipass-nativebridge.service
-```
-
----
-
-## The Problem (Why it Fails by Default)
-
-Three major technical issues prevent the official Windows installer from working on Linux:
-
-### 1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug
-The official `digipass-nativebridge.exe` queries the smartcard's ATR (Answer To Reset) string using the Windows PC/SC function:
-```c
-SCardGetAttrib(hCard, SCARD_ATTR_ATR_STRING, (LPBYTE)&pbAttr, &dwAttrLen);
-```
-In the Windows SDK (`winscard.h`), automatic buffer allocation is requested by setting:
-```c
-#define SCARD_AUTOALLOCATE (DWORD)(-1) /* 0xFFFFFFFF */
-```
-When running under 64-bit Wine, Wine translates Win32 API calls into native Linux calls to `libpcsclite.so.1`. In Wine's `dlls/winscard/winscard.c` and `unixlib.c`, Wine reads the 32-bit `DWORD` from the Windows process and zero-extends it into a 64-bit host `unsigned long`:
-```c
-/* Wine 64-bit conversion: */
-(unsigned long)0xFFFFFFFF  ==>  0x00000000FFFFFFFF
-```
-However, the 64-bit Linux PC/SC Lite header (`/usr/include/PCSC/winscard.h`) defines:
-```c
-#define SCARD_AUTOALLOCATE ((unsigned long)-1) /* 0xFFFFFFFFFFFFFFFF */
-```
-Because `0x00000000FFFFFFFF != 0xFFFFFFFFFFFFFFFF`, Linux's `libpcsclite` does not recognize `SCARD_AUTOALLOCATE`. Instead, it assumes the caller provided a regular buffer of size `4,294,967,295` bytes while passing a NULL destination pointer. `libpcsclite` immediately rejects the call with error code:
-```
-SCARD_E_INSUFFICIENT_BUFFER (0x80100008)
-```
-`digipass-nativebridge.exe` logs:
-```
-Card reader initialization failed: Internal error.
-```
-and drops the card session. The browser UI remains frozen on *"Insert your card"*.
-
-### 2. The Runaway Watchdog Process Fork-Bomb
-The installer creates a Windows registry autostart entry:
-```
-HKCU\Software\Microsoft\Windows\CurrentVersion\Run -> digipass-nativebridge-monitor.exe
-```
-This monitor process attempts to determine if `digipass-nativebridge.exe` is running by calling the Windows API:
-```c
-WTSEnumerateProcessesA(...)
-```
-In Wine, `WTSEnumerateProcessesA` is an unimplemented stub that returns `0` (failure/no processes). Believing the bridge has crashed, `digipass-nativebridge-monitor.exe` executes a new instance of `digipass-nativebridge.exe` every second in an infinite loop! Within a few minutes, hundreds of orphan Wine processes saturate system memory, crash `wineserver`, and lock ports 42579/42580.
-
-### 3. Flatpak / Bottles Sandbox Confinement
-Running the application inside sandbox runners like Bottles (Flatpak) isolates the application from the host smartcard daemon socket (`/run/pcscd/pcscd.comm`), and default Bottles runner builds do not compile Wine with PC/SC (`winscard`) support enabled.
-
----
-
-## How the Fix Works
-
-This project resolves every root cause cleanly and minimally:
-
-1. **Dynamic PC/SC ABI Shim (`pcsc_shim.c`)**:
-   A lightweight C shared library (`libpcsc_wine_shim.so`) is injected via `LD_PRELOAD` into the Wine environment. It intercepts `SCardGetAttrib`:
-   ```c
-   if (pcbAttrLen && *pcbAttrLen == 0xFFFFFFFFUL) {
-       *pcbAttrLen = ((unsigned long)-1); /* Translates to 64-bit 0xFFFFFFFFFFFFFFFF */
-   }
-   ```
-   `libpcsclite.so.1` now recognizes the auto-allocation request, allocates the ATR buffer, and returns `SCARD_S_SUCCESS` (`0x00000000`). It also handles protocol fallbacks (`SCARD_PROTOCOL_T0`) for card reader negotiation.
-
-2. **Registry Watchdog Neutralization**:
-   The installer removes `DigipassNativeBridge` from Wine's `Run` registry key, stopping the infinite fork-bomb permanently.
-
-3. **Managed Systemd User Service**:
-   Rather than relying on Windows-style background monitor executables, a native `systemd` user service (`digipass-nativebridge.service`) manages the bridge daemon cleanly in the background with auto-restart on failure and zero overhead.
-
----
-
-## Technical Upstream Notes (for WineHQ)
-
-If Wine developers wish to address this in upstream Wine:
-- In `dlls/winscard/unixlib.c` (and `dlls/winscard/winscard.c`), when `SCardGetAttrib` receives a `pcbAttrLen` parameter on 64-bit systems, Wine should check whether `*pcbAttrLen == 0xFFFFFFFF` (`SCARD_AUTOALLOCATE` in 32-bit Win32 API) and translate it to host `(unsigned long)-1` (`SCARD_AUTOALLOCATE` in Linux PC/SC Lite). Currently, passing `0x00000000FFFFFFFF` causes Linux `pcsclite` to fail with `SCARD_E_INSUFFICIENT_BUFFER`.
-
----
-
-## Uninstallation
-
-To cleanly remove the service, shim, and helpers:
-```bash
-./uninstall.sh
-```
-*(Your Wine prefix and banking files remain untouched).*
+</details>
 
 ---
 
