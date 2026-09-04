@@ -122,32 +122,23 @@ This project resolves every root cause cleanly and minimally:
 
 ## Prerequisites & Supported Distributions
 
-Ensure your Linux system has `wine` (with smartcard support enabled), `pcsc-lite`, the generic USB CCID driver, and `gcc` installed.
+`install.sh` **automatically detects your Linux distribution** and will print the exact package installation command for your specific system if any dependency is missing.
 
-### Fedora / RHEL / CentOS Stream
-```bash
-sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc
-sudo systemctl enable --now pcscd
-```
+### OS Compatibility Matrix
 
-### Ubuntu / Debian / Linux Mint / Pop!_OS
-```bash
-sudo apt update
-sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential
-sudo systemctl enable --now pcscd
-```
-
-### Arch Linux / Manjaro / EndeavourOS
-```bash
-sudo pacman -S wine pcsclite ccid gcc
-sudo systemctl enable --now pcscd
-```
-
-### openSUSE Tumbleweed / Leap
-```bash
-sudo zypper install wine pcsc-lite pcsc-ccid gcc
-sudo systemctl enable --now pcscd
-```
+| Distribution | Versions | Compatibility Status | Package Manager Command |
+| :--- | :--- | :---: | :--- |
+| **Fedora** | 39, 40, 41, Rawhide | **Fully Tested** | `sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc` |
+| **Ubuntu** | 22.04 LTS, 24.04 LTS, 24.10+ | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Debian** | 12 (Bookworm), 13 (Trixie), Sid | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Linux Mint** | 21, 22+ | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Pop!_OS / Zorin OS** | Current releases | **Fully Supported** | `sudo apt install wine wine64 pcscd libpcsclite1 libccid build-essential` |
+| **Arch Linux** | Rolling | **Fully Supported** | `sudo pacman -S wine pcsclite ccid gcc` |
+| **Manjaro / EndeavourOS** | Rolling | **Fully Supported** | `sudo pacman -S wine pcsclite ccid gcc` |
+| **openSUSE** | Tumbleweed, Leap 15.5+ | **Fully Supported** | `sudo zypper install wine pcsc-lite pcsc-ccid gcc` |
+| **RHEL / Alma / Rocky** | 9.x, 10.x | **Fully Supported** | `sudo dnf install wine wine-smartcard pcsc-lite pcsc-lite-ccid gcc` |
+| **Fedora Silverblue / Bazzite** | Atomic / Immutable | **Supported** | `rpm-ostree install wine-smartcard pcsc-lite pcsc-lite-ccid` |
+| **Non-systemd (Void, Alpine)** | Current | **Supported** | Auto-configures XDG `~/.config/autostart` desktop fallback |
 
 > **Smartcard Daemon Check**: You can verify that your card reader is recognized by running:
 > ```bash
