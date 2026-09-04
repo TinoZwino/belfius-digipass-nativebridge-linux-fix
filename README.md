@@ -24,32 +24,26 @@ A turnkey, plug-and-play solution to run the **OneSpan (VASCO) DIGIPASS 870** sm
 
 ## Table of Contents
 
-- [AI Authorship Disclosure](#ai-authorship-disclosure)
 - [Project Overview](#project-overview)
 - [Support for Other Banks & Services](#support-for-other-banks--services)
-- [The Problem (Why it Fails by Default)](#the-problem-why-it-fails-by-default)
-  - [1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug](#1-the-64-bit-wine-scard_autoallocate-bug)
-  - [2. The Runaway Watchdog Process Fork-Bomb](#2-the-runaway-watchdog-process-fork-bomb)
-  - [3. Flatpak / Bottles Sandbox Confinement](#3-flatpak--bottles-sandbox-confinement)
-- [How the Fix Works](#how-the-fix-works)
 - [Prerequisites & Supported Distributions](#prerequisites--supported-distributions)
 - [Web Browser Compatibility & Permissions](#web-browser-compatibility--permissions)
 - [Installation Tutorial](#installation-tutorial)
   - [Method A: Automated Installation (Recommended)](#method-a-automated-installation-recommended)
   - [Method B: Manual Installation](#method-b-manual-installation)
+  - [Upgrading to a New Version](#upgrading-to-a-new-version-of-nativebridge)
+  - [Custom Wine Prefix](#custom-wine-prefix)
 - [How to Log In to Belfius](#how-to-log-in-to-belfius)
 - [Service Management & Troubleshooting](#service-management--troubleshooting)
+- [The Problem (Why it Fails by Default)](#the-problem-why-it-fails-by-default)
+  - [1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug](#1-the-64-bit-wine-scard_autoallocate-bug)
+  - [2. The Runaway Watchdog Process Fork-Bomb](#2-the-runaway-watchdog-process-fork-bomb)
+  - [3. Flatpak / Bottles Sandbox Confinement](#3-flatpak--bottles-sandbox-confinement)
+- [How the Fix Works](#how-the-fix-works)
+- [AI Authorship Disclosure](#ai-authorship-disclosure)
 - [Technical Upstream Notes (for WineHQ)](#technical-upstream-notes-for-winehq)
 - [Uninstallation](#uninstallation)
 - [License](#license)
-
----
-
-## AI Authorship Disclosure
-
-> **Note**: This entire repository, including the reverse-engineering analysis, C interceptor shim (`pcsc_shim.c`), systemd service integration, automated installer/uninstaller scripts, and documentation, was **100% researched, developed, debugged, and verified by an AI coding assistant (Google Antigravity / DeepMind)** paired with user [@TinoZwino](https://github.com/TinoZwino).
->
-> During a real-time troubleshooting session, the AI systematically investigated why Belfius's official Windows bridge failed under Wine on Linux, pinpointed a subtle 64-bit zero-extension discrepancy in Wine's smartcard translation layer, detected an infinite process spawning loop in the Windows background monitor, wrote and compiled an `LD_PRELOAD` C shim to dynamically patch the ABI calls at runtime, and verified end-to-end PIN verification on the physical DIGIPASS 870 keypad.
 
 ---
 
@@ -74,75 +68,6 @@ Because this workaround fixes the core Windows-to-Linux PC/SC smartcard ABI tran
 * **Isabel 6 (Belgian Business Multi-Banking)**: Used by thousands of Belgian businesses to manage accounts across Belfius, BNP Paribas Fortis, ING, KBC, and CBC. Organizations using USB-connected DIGIPASS 870 readers with Isabel use this same bridge architecture.
 * **Crelan & Other Financial Institutions**: Banks in Belgium and across Europe that issue OneSpan/VASCO DIGIPASS smartcard readers with USB cable connectivity and web browser integration.
 * **Note on Offline Readers**: Banks like KBC, Argenta, and ING (retail) frequently use "standalone/offline" card readers where you type numerical codes directly on the keypad without a USB connection. Those readers do not use or require any PC bridge software.
-
----
-
-## The Problem (Why it Fails by Default)
-
-Three major technical issues prevent the official Windows installer from working on Linux:
-
-### 1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug
-The official `digipass-nativebridge.exe` queries the smartcard's ATR (Answer To Reset) string using the Windows PC/SC function:
-```c
-SCardGetAttrib(hCard, SCARD_ATTR_ATR_STRING, (LPBYTE)&pbAttr, &dwAttrLen);
-```
-In the Windows SDK (`winscard.h`), automatic buffer allocation is requested by setting:
-```c
-#define SCARD_AUTOALLOCATE (DWORD)(-1) /* 0xFFFFFFFF */
-```
-When running under 64-bit Wine, Wine translates Win32 API calls into native Linux calls to `libpcsclite.so.1`. In Wine's `dlls/winscard/winscard.c` and `unixlib.c`, Wine reads the 32-bit `DWORD` from the Windows process and zero-extends it into a 64-bit host `unsigned long`:
-```c
-/* Wine 64-bit conversion: */
-(unsigned long)0xFFFFFFFF  ==>  0x00000000FFFFFFFF
-```
-However, the 64-bit Linux PC/SC Lite header (`/usr/include/PCSC/winscard.h`) defines:
-```c
-#define SCARD_AUTOALLOCATE ((unsigned long)-1) /* 0xFFFFFFFFFFFFFFFF */
-```
-Because `0x00000000FFFFFFFF != 0xFFFFFFFFFFFFFFFF`, Linux's `libpcsclite` does not recognize `SCARD_AUTOALLOCATE`. Instead, it assumes the caller provided a regular buffer of size `4,294,967,295` bytes while passing a NULL destination pointer. `libpcsclite` immediately rejects the call with error code:
-```
-SCARD_E_INSUFFICIENT_BUFFER (0x80100008)
-```
-`digipass-nativebridge.exe` logs:
-```
-Card reader initialization failed: Internal error.
-```
-and drops the card session. The browser UI remains frozen on *"Insert your card"*.
-
-### 2. The Runaway Watchdog Process Fork-Bomb
-The installer creates a Windows registry autostart entry:
-```
-HKCU\Software\Microsoft\Windows\CurrentVersion\Run -> digipass-nativebridge-monitor.exe
-```
-This monitor process attempts to determine if `digipass-nativebridge.exe` is running by calling the Windows API:
-```c
-WTSEnumerateProcessesA(...)
-```
-In Wine, `WTSEnumerateProcessesA` is an unimplemented stub that returns `0` (failure/no processes). Believing the bridge has crashed, `digipass-nativebridge-monitor.exe` executes a new instance of `digipass-nativebridge.exe` every second in an infinite loop! Within a few minutes, hundreds of orphan Wine processes saturate system memory, crash `wineserver`, and lock ports 42579/42580.
-
-### 3. Flatpak / Bottles Sandbox Confinement
-Running the application inside sandbox runners like Bottles (Flatpak) isolates the application from the host smartcard daemon socket (`/run/pcscd/pcscd.comm`), and default Bottles runner builds do not compile Wine with PC/SC (`winscard`) support enabled.
-
----
-
-## How the Fix Works
-
-This project resolves every root cause cleanly and minimally:
-
-1. **Dynamic PC/SC ABI Shim (`pcsc_shim.c`)**:
-   A lightweight C shared library (`libpcsc_wine_shim.so`) is injected via `LD_PRELOAD` into the Wine environment. It intercepts `SCardGetAttrib`:
-   ```c
-   if (pcbAttrLen && *pcbAttrLen == 0xFFFFFFFFUL) {
-       *pcbAttrLen = ((unsigned long)-1); /* Translates to 64-bit 0xFFFFFFFFFFFFFFFF */
-   }
-   ```
-   `libpcsclite.so.1` now recognizes the auto-allocation request, allocates the ATR buffer, and returns `SCARD_S_SUCCESS` (`0x00000000`). It also handles protocol fallbacks (`SCARD_PROTOCOL_T0`) for card reader negotiation.
-
-2. **Registry Watchdog Neutralization**:
-   The installer removes `DigipassNativeBridge` from Wine's `Run` registry key, stopping the infinite fork-bomb permanently.
-
-3. **Managed Systemd User Service**:
-   Rather than relying on Windows-style background monitor executables, a native `systemd` user service (`digipass-nativebridge.service`) manages the bridge daemon cleanly in the background with auto-restart on failure and zero overhead.
 
 ---
 
@@ -262,7 +187,7 @@ If you prefer to perform the installation steps manually:
 3. **Compile the PC/SC Shim**:
    ```bash
    mkdir -p ~/.local/lib
-   gcc -shared -fPIC -O2 -o ~/.local/lib/libpcsc_wine_shim.so pcsc_shim.c -ldl
+   gcc -Wall -Wextra -shared -fPIC -O2 -o ~/.local/lib/libpcsc_wine_shim.so pcsc_shim.c -ldl
    ```
 
 4. **Create the systemd user service**:
@@ -348,6 +273,83 @@ Expected debug output during successful card detection:
 ```bash
 systemctl --user restart digipass-nativebridge.service
 ```
+
+---
+
+## The Problem (Why it Fails by Default)
+
+Three major technical issues prevent the official Windows installer from working on Linux:
+
+### 1. The 64-bit Wine `SCARD_AUTOALLOCATE` Bug
+The official `digipass-nativebridge.exe` queries the smartcard's ATR (Answer To Reset) string using the Windows PC/SC function:
+```c
+SCardGetAttrib(hCard, SCARD_ATTR_ATR_STRING, (LPBYTE)&pbAttr, &dwAttrLen);
+```
+In the Windows SDK (`winscard.h`), automatic buffer allocation is requested by setting:
+```c
+#define SCARD_AUTOALLOCATE (DWORD)(-1) /* 0xFFFFFFFF */
+```
+When running under 64-bit Wine, Wine translates Win32 API calls into native Linux calls to `libpcsclite.so.1`. In Wine's `dlls/winscard/winscard.c` and `unixlib.c`, Wine reads the 32-bit `DWORD` from the Windows process and zero-extends it into a 64-bit host `unsigned long`:
+```c
+/* Wine 64-bit conversion: */
+(unsigned long)0xFFFFFFFF  ==>  0x00000000FFFFFFFF
+```
+However, the 64-bit Linux PC/SC Lite header (`/usr/include/PCSC/winscard.h`) defines:
+```c
+#define SCARD_AUTOALLOCATE ((unsigned long)-1) /* 0xFFFFFFFFFFFFFFFF */
+```
+Because `0x00000000FFFFFFFF != 0xFFFFFFFFFFFFFFFF`, Linux's `libpcsclite` does not recognize `SCARD_AUTOALLOCATE`. Instead, it assumes the caller provided a regular buffer of size `4,294,967,295` bytes while passing a NULL destination pointer. `libpcsclite` immediately rejects the call with error code:
+```
+SCARD_E_INSUFFICIENT_BUFFER (0x80100008)
+```
+`digipass-nativebridge.exe` logs:
+```
+Card reader initialization failed: Internal error.
+```
+and drops the card session. The browser UI remains frozen on *"Insert your card"*.
+
+### 2. The Runaway Watchdog Process Fork-Bomb
+The installer creates a Windows registry autostart entry:
+```
+HKCU\Software\Microsoft\Windows\CurrentVersion\Run -> digipass-nativebridge-monitor.exe
+```
+This monitor process attempts to determine if `digipass-nativebridge.exe` is running by calling the Windows API:
+```c
+WTSEnumerateProcessesA(...)
+```
+In Wine, `WTSEnumerateProcessesA` is an unimplemented stub that returns `0` (failure/no processes). Believing the bridge has crashed, `digipass-nativebridge-monitor.exe` executes a new instance of `digipass-nativebridge.exe` every second in an infinite loop! Within a few minutes, hundreds of orphan Wine processes saturate system memory, crash `wineserver`, and lock ports 42579/42580.
+
+### 3. Flatpak / Bottles Sandbox Confinement
+Running the application inside sandbox runners like Bottles (Flatpak) isolates the application from the host smartcard daemon socket (`/run/pcscd/pcscd.comm`), and default Bottles runner builds do not compile Wine with PC/SC (`winscard`) support enabled.
+
+---
+
+## How the Fix Works
+
+This project resolves every root cause cleanly and minimally:
+
+1. **Dynamic PC/SC ABI Shim (`pcsc_shim.c`)**:
+   A lightweight C shared library (`libpcsc_wine_shim.so`) is injected via `LD_PRELOAD` into the Wine environment. It intercepts `SCardGetAttrib`:
+   ```c
+   if (pcbAttrLen && *pcbAttrLen == 0xFFFFFFFFUL) {
+       *pcbAttrLen = ((unsigned long)-1); /* Translates to 64-bit 0xFFFFFFFFFFFFFFFF */
+   }
+   ```
+   `libpcsclite.so.1` now recognizes the auto-allocation request, allocates the ATR buffer, and returns `SCARD_S_SUCCESS` (`0x00000000`). It also handles protocol fallbacks (`SCARD_PROTOCOL_T0`) for card reader negotiation.
+
+2. **Registry Watchdog Neutralization**:
+   The installer removes `DigipassNativeBridge` from Wine's `Run` registry key, stopping the infinite fork-bomb permanently.
+
+3. **Managed Systemd User Service**:
+   Rather than relying on Windows-style background monitor executables, a native `systemd` user service (`digipass-nativebridge.service`) manages the bridge daemon cleanly in the background with auto-restart on failure and zero overhead.
+
+---
+
+## AI Authorship Disclosure
+
+> **Note**: This entire repository, including the reverse-engineering analysis, C interceptor shim (`pcsc_shim.c`), systemd service integration, automated installer/uninstaller scripts, and documentation, was **100% researched, developed, debugged, and verified by an AI coding assistant (Google Antigravity / DeepMind)** paired with user [@TinoZwino](https://github.com/TinoZwino).
+>
+> During a real-time troubleshooting session, the AI systematically investigated why Belfius's official Windows bridge failed under Wine on Linux, pinpointed a subtle 64-bit zero-extension discrepancy in Wine's smartcard translation layer, detected an infinite process spawning loop in the Windows background monitor, wrote and compiled an `LD_PRELOAD` C shim to dynamically patch the ABI calls at runtime, and verified end-to-end PIN verification on the physical DIGIPASS 870 keypad.
 
 ---
 
