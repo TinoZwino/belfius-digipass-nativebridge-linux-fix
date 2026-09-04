@@ -202,12 +202,26 @@ Belfius's web application connects directly to the local bridge process via stan
    ```
 
 **What the installer does automatically:**
-- [x] Verifies all required dependencies (`wine`, `gcc`, `pcscd`).
-- [x] Checks if OneSpan NativeBridge is installed in Wine. If not, it automatically runs `digipass-nativebridge-installer.exe`.
+- [x] Protects against running with `sudo` (ensures user-level installation).
+- [x] Detects distribution and verifies all required dependencies (`wine`, `gcc`/`clang`, `pcscd`, `libpcsclite`).
+- [x] Dynamically finds the OneSpan NativeBridge executable anywhere in the Wine prefix.
+- [x] Automatically verifies the SHA-256 checksum of `digipass-nativebridge-installer.exe`.
 - [x] Compiles `pcsc_shim.c` into `~/.local/lib/libpcsc_wine_shim.so`.
-- [x] Deletes the buggy watchdog monitor from Wine's startup registry.
-- [x] Installs and starts the `digipass-nativebridge.service` user systemd service (auto-starts on login).
+- [x] Deletes the runaway watchdog monitor from Wine's startup registry.
+- [x] Installs and starts the `digipass-nativebridge.service` user systemd service (or XDG desktop autostart on non-systemd distros).
 - [x] Creates a convenient CLI command: `digipass-nativebridge`.
+
+#### Upgrading to a New Version of NativeBridge
+When Belfius releases a new version of `digipass-nativebridge-installer.exe`, simply drop the new installer into the directory and run:
+```bash
+./install.sh --upgrade
+```
+
+#### Custom Wine Prefix
+To install into a dedicated or custom Wine prefix rather than `~/.wine`:
+```bash
+WINEPREFIX="$HOME/.local/share/wineprefixes/belfius" ./install.sh
+```
 
 ---
 

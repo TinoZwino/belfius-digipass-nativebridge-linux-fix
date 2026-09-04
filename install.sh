@@ -12,14 +12,49 @@ RED="\033[0;31m"
 BLUE="\033[0;34m"
 RESET="\033[0m"
 
+# Prevent running as root
+if [ "$(id -u)" -eq 0 ]; then
+    echo -e "${RED}${BOLD}Error: Do not run this installer as root or with sudo!${RESET}"
+    echo "The OneSpan NativeBridge and user systemd service must run under your standard user account."
+    echo "If root permissions are needed for system packages, you will be prompted automatically."
+    exit 1
+fi
+
+UPGRADE_MODE=0
+for arg in "$@"; do
+    case "$arg" in
+        --upgrade|-u|--reinstall|--force)
+            UPGRADE_MODE=1
+            ;;
+        --help|-h)
+            echo "Usage: ./install.sh [options]"
+            echo ""
+            echo "Options:"
+            echo "  --upgrade, -u, --reinstall   Force re-running the Windows installer to update/upgrade"
+            echo "  --help, -h                   Show this help message"
+            exit 0
+            ;;
+    esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SHIM_SRC="$SCRIPT_DIR/pcsc_shim.c"
+
+# Support custom WINEPREFIX or default ~/.wine
+WINE_PREFIX="${WINEPREFIX:-$HOME/.wine}"
+export WINEPREFIX="$WINE_PREFIX"
+
+# Support XDG base directories
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+
 SHIM_LIB_DIR="$HOME/.local/lib"
 SHIM_LIB="$SHIM_LIB_DIR/libpcsc_wine_shim.so"
 BIN_DIR="$HOME/.local/bin"
-SERVICE_DIR="$HOME/.config/systemd/user"
+SERVICE_DIR="$XDG_CONFIG_HOME/systemd/user"
 SERVICE_FILE="$SERVICE_DIR/digipass-nativebridge.service"
-AUTOSTART_DIR="$HOME/.config/autostart"
+AUTOSTART_DIR="$XDG_CONFIG_HOME/autostart"
 AUTOSTART_FILE="$AUTOSTART_DIR/digipass-nativebridge.desktop"
 OFFICIAL_SHA256="e3c70d7fb4e7f5c388d301dcf82aea6c9070691f020a831a10aa6e691893bd27"
 
@@ -27,6 +62,40 @@ echo -e "${BOLD}====================================================${RESET}"
 echo -e "${BOLD}   Belfius DIGIPASS 870 / OneSpan NativeBridge      ${RESET}"
 echo -e "${BOLD}             Linux Auto-Installer                   ${RESET}"
 echo -e "${BOLD}====================================================${RESET}\n"
+
+# Helper to cleanly stop wine processes
+stop_wine_processes() {
+    systemctl --user stop digipass-nativebridge.service 2>/dev/null || true
+    if command -v wineserver >/dev/null 2>&1; then
+        wineserver -k 2>/dev/null || true
+    elif command -v wine >/dev/null 2>&1; then
+        wine wineserver -k 2>/dev/null || true
+    fi
+}
+
+# Helper to find NativeBridge installation directory dynamically
+find_bridge_dir() {
+    local pfx="$1"
+    # Check common fast paths first
+    for d in "$pfx"/drive_c/users/*/AppData/Local/OneSpan/NativeBridge \
+             "$pfx"/drive_c/users/*/AppData/Roaming/OneSpan/NativeBridge \
+             "$pfx"/drive_c/"Program Files"/OneSpan/NativeBridge \
+             "$pfx"/drive_c/"Program Files (x86)"/OneSpan/NativeBridge; do
+        if [ -d "$d" ] && [ -f "$d/digipass-nativebridge.exe" ]; then
+            echo "$d"
+            return 0
+        fi
+    done
+
+    # Fallback to case-insensitive recursive search across drive_c
+    local found_exe
+    found_exe=$(find "$pfx/drive_c" -maxdepth 6 -type f -iname "digipass-nativebridge.exe" 2>/dev/null | head -n 1)
+    if [ -n "$found_exe" ]; then
+        dirname "$found_exe"
+        return 0
+    fi
+    return 1
+}
 
 # Distro detection
 DISTRO_NAME="Linux"
@@ -61,7 +130,7 @@ get_install_command() {
             echo "sudo xbps-install -S wine pcsc-lite ccid gcc"
             ;;
         *)
-            echo "Install: wine, pcsc-lite, ccid driver, and gcc via your package manager."
+            echo "Install: wine, pcsc-lite, ccid driver, and gcc/clang via your package manager."
             ;;
     esac
 }
@@ -69,14 +138,27 @@ get_install_command() {
 echo -e "${YELLOW}[1/6] Checking system requirements for: ${BOLD}${DISTRO_NAME}${RESET}..."
 
 MISSING_DEPS=()
-command -v wine >/dev/null 2>&1 || MISSING_DEPS+=("wine")
-command -v gcc >/dev/null 2>&1 || MISSING_DEPS+=("gcc (C compiler)")
+WINE_BIN="$(command -v wine 2>/dev/null || true)"
+[ -z "$WINE_BIN" ] && MISSING_DEPS+=("wine")
+
+# Support either gcc or clang
+CC_BIN="${CC:-}"
+if [ -z "$CC_BIN" ]; then
+    if command -v gcc >/dev/null 2>&1; then
+        CC_BIN="gcc"
+    elif command -v clang >/dev/null 2>&1; then
+        CC_BIN="clang"
+    else
+        MISSING_DEPS+=("gcc or clang (C compiler)")
+    fi
+fi
 
 # Check if libpcsclite is present
 if ! ldconfig -p 2>/dev/null | grep -q "libpcsclite\.so" && \
    [ ! -f /usr/lib64/libpcsclite.so.1 ] && \
    [ ! -f /usr/lib/x86_64-linux-gnu/libpcsclite.so.1 ] && \
-   [ ! -f /usr/lib/libpcsclite.so.1 ]; then
+   [ ! -f /usr/lib/libpcsclite.so.1 ] && \
+   [ ! -f /usr/local/lib/libpcsclite.so.1 ]; then
     MISSING_DEPS+=("pcsc-lite (libpcsclite.so.1)")
 fi
 
@@ -89,7 +171,7 @@ if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo -e "  ${GREEN}$(get_install_command)${RESET}\n"
     exit 1
 fi
-echo -e "${GREEN}✓ All required tools and libraries are installed.${RESET}"
+echo -e "${GREEN}✓ All required tools and libraries are installed (${CC_BIN}, ${WINE_BIN}).${RESET}"
 
 # 2. Check pcscd smart card service
 echo -e "${YELLOW}[2/6] Verifying pcscd smart card daemon...${RESET}"
@@ -104,36 +186,31 @@ else
     echo -e "${GREEN}✓ pcscd daemon is active.${RESET}"
 fi
 
-# 3. Check for NativeBridge installation in Wine
-echo -e "${YELLOW}[3/6] Locating OneSpan NativeBridge in Wine prefix...${RESET}"
+# 3. Check for NativeBridge installation / upgrade in Wine
+echo -e "${YELLOW}[3/6] Checking OneSpan NativeBridge in Wine prefix (${WINE_PREFIX})...${RESET}"
 
-BRIDGE_DIR=""
-for d in "$HOME"/.wine/drive_c/users/*/AppData/Local/OneSpan/NativeBridge; do
-    if [ -d "$d" ] && [ -f "$d/digipass-nativebridge.exe" ]; then
-        BRIDGE_DIR="$d"
-        break
+BRIDGE_DIR="$(find_bridge_dir "$WINE_PREFIX" || true)"
+
+if [ -z "$BRIDGE_DIR" ] || [ "$UPGRADE_MODE" -eq 1 ]; then
+    if [ "$UPGRADE_MODE" -eq 1 ] && [ -n "$BRIDGE_DIR" ]; then
+        echo "Upgrade/reinstall requested. Re-running Windows installer..."
+    else
+        echo "NativeBridge is not yet installed in Wine prefix."
     fi
-done
 
-if [ -z "$BRIDGE_DIR" ]; then
-    echo "NativeBridge is not yet installed in Wine."
     INSTALLER=$(find "$SCRIPT_DIR" "$HOME/Downloads" -maxdepth 2 -type f -name "digipass-nativebridge-installer.exe" 2>/dev/null | head -n 1)
     if [ -n "$INSTALLER" ]; then
         echo "Found installer at: $INSTALLER"
         ACTUAL_SHA256=$(sha256sum "$INSTALLER" | awk '{print $1}')
         if [ "$ACTUAL_SHA256" = "$OFFICIAL_SHA256" ]; then
-            echo -e "${GREEN}✓ Installer integrity verified (SHA-256 match).${RESET}"
+            echo -e "${GREEN}✓ Installer integrity verified (SHA-256 matches known Belfius release).${RESET}"
         else
-            echo -e "${YELLOW}Notice: Installer SHA-256 is $ACTUAL_SHA256 (expected official Belfius $OFFICIAL_SHA256).${RESET}"
+            echo -e "${YELLOW}Notice: Installer SHA-256 is $ACTUAL_SHA256 (new version or customized build).${RESET}"
         fi
-        echo "Running Windows installer via Wine... (follow the prompt on screen)"
-        wine "$INSTALLER"
-        for d in "$HOME"/.wine/drive_c/users/*/AppData/Local/OneSpan/NativeBridge; do
-            if [ -d "$d" ] && [ -f "$d/digipass-nativebridge.exe" ]; then
-                BRIDGE_DIR="$d"
-                break
-            fi
-        done
+        echo "Running Windows installer via Wine... (follow the on-screen prompts)"
+        stop_wine_processes
+        "$WINE_BIN" "$INSTALLER"
+        BRIDGE_DIR="$(find_bridge_dir "$WINE_PREFIX" || true)"
     else
         echo -e "${RED}Error: digipass-nativebridge-installer.exe not found!${RESET}"
         echo "Please download it from Belfius and place it in $SCRIPT_DIR, then re-run this script."
@@ -142,13 +219,13 @@ if [ -z "$BRIDGE_DIR" ]; then
 fi
 
 if [ -z "$BRIDGE_DIR" ] || [ ! -f "$BRIDGE_DIR/digipass-nativebridge.exe" ]; then
-    echo -e "${RED}Error: digipass-nativebridge.exe still not found in $HOME/.wine!${RESET}"
+    echo -e "${RED}Error: digipass-nativebridge.exe still not found in $WINE_PREFIX!${RESET}"
     exit 1
 fi
 echo -e "${GREEN}✓ Found NativeBridge at: $BRIDGE_DIR${RESET}"
 
 # 4. Build PC/SC Wine Shim
-echo -e "${YELLOW}[4/6] Compiling PC/SC Wine shim...${RESET}"
+echo -e "${YELLOW}[4/6] Compiling PC/SC Wine shim with ${CC_BIN}...${RESET}"
 mkdir -p "$SHIM_LIB_DIR"
 
 if [ ! -f "$SHIM_SRC" ]; then
@@ -156,40 +233,51 @@ if [ ! -f "$SHIM_SRC" ]; then
     exit 1
 fi
 
-gcc -Wall -Wextra -shared -fPIC -O2 -o "$SHIM_LIB" "$SHIM_SRC" -ldl
+"$CC_BIN" -Wall -Wextra -shared -fPIC -O2 -o "$SHIM_LIB" "$SHIM_SRC" -ldl
 echo -e "${GREEN}✓ Compiled shim to $SHIM_LIB${RESET}"
 
 # 5. Disable runaway watchdog monitor in Wine registry
 echo -e "${YELLOW}[5/6] Disabling buggy monitor watchdog in Wine registry...${RESET}"
-systemctl --user stop digipass-nativebridge.service 2>/dev/null || true
-wineserver -k 2>/dev/null || true
+stop_wine_processes
 killall -q digipass-nativebridge-monitor.exe 2>/dev/null || true
 killall -q digipass-nativebridge.exe 2>/dev/null || true
-wine reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v DigipassNativeBridge /f 2>/dev/null || true
+"$WINE_BIN" reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v DigipassNativeBridge /f 2>/dev/null || true
+"$WINE_BIN" reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v OneSpanNativeBridge /f 2>/dev/null || true
 
 # 6. Install autostart service and CLI helper
 echo -e "${YELLOW}[6/6] Setting up background service and command helper...${RESET}"
 mkdir -p "$BIN_DIR"
-cat << 'HELPER_EOF' > "$BIN_DIR/digipass-nativebridge"
+cat << HELPER_EOF > "$BIN_DIR/digipass-nativebridge"
 #!/usr/bin/env bash
+WINE_PREFIX="${WINE_PREFIX}"
+export WINEPREFIX="\$WINE_PREFIX"
+SHIM_LIB="$SHIM_LIB"
+
+# Dynamically find bridge executable
 BRIDGE_DIR=""
-for d in "$HOME"/.wine/drive_c/users/*/AppData/Local/OneSpan/NativeBridge; do
-    if [ -d "$d" ] && [ -f "$d/digipass-nativebridge.exe" ]; then
-        BRIDGE_DIR="$d"
+for d in "\$WINE_PREFIX"/drive_c/users/*/AppData/Local/OneSpan/NativeBridge \
+         "\$WINE_PREFIX"/drive_c/users/*/AppData/Roaming/OneSpan/NativeBridge \
+         "\$WINE_PREFIX"/drive_c/"Program Files"/OneSpan/NativeBridge; do
+    if [ -d "\$d" ] && [ -f "\$d/digipass-nativebridge.exe" ]; then
+        BRIDGE_DIR="\$d"
         break
     fi
 done
-SHIM_LIB="$HOME/.local/lib/libpcsc_wine_shim.so"
 
-if [ -z "$BRIDGE_DIR" ]; then
-    echo "Error: NativeBridge directory not found in ~/.wine" >&2
+if [ -z "\$BRIDGE_DIR" ]; then
+    found=\$(find "\$WINE_PREFIX/drive_c" -maxdepth 6 -type f -iname "digipass-nativebridge.exe" 2>/dev/null | head -n 1)
+    [ -n "\$found" ] && BRIDGE_DIR=\$(dirname "\$found")
+fi
+
+if [ -z "\$BRIDGE_DIR" ]; then
+    echo "Error: NativeBridge directory not found in \$WINE_PREFIX" >&2
     exit 1
 fi
 
 killall -q digipass-nativebridge.exe 2>/dev/null || true
-cd "$BRIDGE_DIR"
-export LD_PRELOAD="$SHIM_LIB"
-exec /usr/bin/wine digipass-nativebridge.exe "$@"
+cd "\$BRIDGE_DIR"
+export LD_PRELOAD="\$SHIM_LIB"
+exec "$WINE_BIN" digipass-nativebridge.exe "\$@"
 HELPER_EOF
 chmod +x "$BIN_DIR/digipass-nativebridge"
 
@@ -209,9 +297,10 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$BRIDGE_DIR
+Environment="WINEPREFIX=$WINE_PREFIX"
 Environment="LD_PRELOAD=$SHIM_LIB"
 Environment="WINEDEBUG=-all"
-ExecStart=/usr/bin/wine "$BRIDGE_DIR/digipass-nativebridge.exe"
+ExecStart=$WINE_BIN "$BRIDGE_DIR/digipass-nativebridge.exe"
 Restart=on-failure
 RestartSec=3s
 TimeoutStopSec=3s
@@ -225,7 +314,6 @@ SERVICE_EOF
     systemctl --user enable --now digipass-nativebridge.service
     sleep 2
 else
-    # Fallback to XDG autostart desktop entry for non-systemd distros
     echo "Configuring XDG desktop autostart (non-systemd environment)..."
     mkdir -p "$AUTOSTART_DIR"
     cat << AUTOSTART_EOF > "$AUTOSTART_FILE"
