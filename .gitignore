@@ -1,0 +1,15 @@
+# Build artifacts
+*.so
+*.o
+*.a
+
+# Logs & temp files
+*.log
+/tmp/
+
+# OS / Editor files
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
