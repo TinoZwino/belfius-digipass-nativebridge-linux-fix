@@ -1,6 +1,6 @@
 # Belfius DIGIPASS 870 on Linux (OneSpan NativeBridge + Wine Shim)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: None](https://img.shields.io/badge/License-None%20(All%20Rights%20Reserved)-lightgrey.svg)](#license)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://kernel.org)
 [![Wine: 8.0+](https://img.shields.io/badge/Wine-8.0%2B%20%7C%209.0%2B%20%7C%2010.0%2B-blue.svg)](https://winehq.org)
 [![Hardware: DIGIPASS 870](https://img.shields.io/badge/Hardware-VASCO%20%2F%20OneSpan%20870-brightgreen.svg)](https://www.onespan.com)
@@ -294,6 +294,10 @@ In `dlls/winscard/unixlib.c` and `winscard.c`, when `SCardGetAttrib` receives a 
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+**No License / All Rights Reserved.**
 
-*Disclaimer: This repository is an independent open-source interoperability fix. It is not affiliated with, endorsed by, or associated with Belfius Bank SA/NV or OneSpan Inc.*
+This repository does **not** grant an open-source license. It is shared strictly as a personal workaround and technical troubleshooting reference:
+
+- **No reuse, re-licensing, or redistribution**: You may not copy, sell, repackage, or distribute this repository or its contents without permission.
+- **Third-Party Software**: The Windows installer (`digipass-nativebridge-installer.exe`), the OneSpan NativeBridge software, and the DIGIPASS trademarks are the exclusive property and copyright of **OneSpan Inc.** (formerly VASCO Data Security) and **Belfius Bank SA/NV**.
+- **Disclaimer**: This repository is an independent personal interoperability fix. It is not affiliated with, endorsed by, or associated with Belfius Bank SA/NV or OneSpan Inc.
