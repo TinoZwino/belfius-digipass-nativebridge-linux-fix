@@ -20,7 +20,7 @@ A turnkey, plug-and-play solution to run the **OneSpan (VASCO) DIGIPASS 870** sm
   - [3. Flatpak / Bottles Sandbox Confinement](#3-flatpak--bottles-sandbox-confinement)
 - [How the Fix Works](#how-the-fix-works)
 - [Prerequisites & Supported Distributions](#prerequisites--supported-distributions)
-- [Supported Web Browsers](#supported-web-browsers)
+- [Web Browser Compatibility & Permissions](#web-browser-compatibility--permissions)
 - [Installation Tutorial](#installation-tutorial)
   - [Method A: Automated Installation (Recommended)](#method-a-automated-installation-recommended)
   - [Method B: Manual Installation](#method-b-manual-installation)
@@ -149,30 +149,23 @@ This project resolves every root cause cleanly and minimally:
 
 ---
 
-## Supported Web Browsers
+## Web Browser Compatibility & Permissions
 
-Because the OneSpan NativeBridge communicates with your browser over standard local HTTP/WebSocket loopback (`127.0.0.1:42579` and `127.0.0.1:42580`), it is **completely browser-agnostic**. Any browser capable of accessing local loopback connections is supported.
+Because OneSpan NativeBridge communicates over standard local HTTP/WebSocket loopback (`127.0.0.1:42579` and `127.0.0.1:42580`), it is **universal and completely browser-agnostic**.
 
-### Browser Compatibility Matrix
+Every major Linux browser is supported, including:
+* **Firefox-based**: Mozilla Firefox, Zen Browser, LibreWolf, Floorp, Waterfox
+* **Chromium-based**: Google Chrome, Helium Browser, Brave, Chromium, Microsoft Edge, Vivaldi, Opera
+* **Packaging formats**: Native (`.deb`, `.rpm`, `pacman`), Flatpak, and Snap (Flatpak/Snap browsers have `--share=network` by default, allowing local loopback connections without modifying sandbox permissions).
 
-| Browser | Engine / Core | Packaging Formats | Compatibility Status | Notes |
-| :--- | :--- | :--- | :---: | :--- |
-| **Mozilla Firefox** | Gecko | Native (.deb/.rpm), Flatpak, Snap | **Fully Supported** | Default browser across most Linux distros |
-| **Google Chrome** | Chromium | Native (.deb/.rpm) | **Fully Supported** | Official Google repository builds |
-| **Zen Browser** | Gecko (Firefox) | Flatpak, Tarball, AppImage | **Fully Supported** | Modern Firefox-based power-user browser |
-| **Helium Browser** | WebEngine / Chromium | Native, Flatpak | **Fully Supported** | Lightweight privacy-focused browser |
-| **Brave** | Chromium | Native, Flatpak | **Fully Supported** | Works with default shield settings |
-| **Chromium** | Chromium | Native, Flatpak, Snap | **Fully Supported** | Open-source base browser |
-| **Microsoft Edge** | Chromium | Native (.deb/.rpm) | **Fully Supported** | Linux release |
-| **LibreWolf** | Gecko (Firefox) | Native, Flatpak, AppImage | **Fully Supported** | Hardened privacy browser |
-| **Floorp / Waterfox** | Gecko (Firefox) | Native, Flatpak, AppImage | **Fully Supported** | Customizable Firefox forks |
-| **Vivaldi / Opera** | Chromium | Native, Flatpak | **Fully Supported** | Feature-packed browsers |
-
-### Flatpak & Snap Compatibility Note
-Unlike direct smartcard token access (which is often blocked by container sandboxing), local HTTP/WebSocket loopback connections to `127.0.0.1` function out-of-the-box in Flatpak and Snap browsers without requiring any special sandbox permission tweaks (`--share=network` is enabled by default).
+> [!IMPORTANT]
+> ### ⚠️ Browser Permission Required (Allow Access to Apps / Local Network)
+> When you click **"Met USB-kabel"** on the Belfius login page for the first time, modern browsers will display a security permission dialog asking for permission to open or communicate with external applications on your computer (e.g., *"Allow belfius.be to open this application"* or *"Allow belfius.be to access apps / devices on your local network"*).
+>
+> You **must click "Allow"** (*Toestaan* / *Autoriser*). If you dismiss or block this dialog, the browser will prevent JavaScript from connecting to the bridge on `127.0.0.1`, and the website will remain stuck on the login screen.
 
 ### No Browser Extension Required
-Belfius's web application connects directly to the local bridge process via standard JavaScript `fetch()` and `WebSocket()` requests on localhost. **No browser extension or add-on is required.**
+Belfius connects directly to the local bridge process via standard JavaScript `fetch()` and `WebSocket()` requests on localhost. **No browser extension or add-on is required.**
 
 ---
 
@@ -288,7 +281,7 @@ If you prefer to perform the installation steps manually:
 2. Insert your **Belfius Bank Card** into the reader.
 3. Open your favorite web browser (Google Chrome, Mozilla Firefox, Brave, Microsoft Edge, Zen, etc.).
 4. Navigate to **[Belfius Aanmelden / Connexion](https://www.belfius.be/retail/nl/mijn-belfius/index.aspx?appkey=FEED)**.
-5. Click **"Met USB-kabel"** (*With USB cable*).
+5. Click **"Met USB-kabel"** (*With USB cable*). If prompted by your browser with a security dialog asking to access apps or open an application, click **Allow** (*Toestaan* / *Autoriser*).
 6. The website will immediately detect the bridge and the card reader.
 7. Follow the prompt on the physical DIGIPASS 870 screen, enter your PIN on the keypad, and press **OK**.
 8. You are securely logged in to Belfius Direct Net!
