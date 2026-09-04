@@ -1,12 +1,7 @@
-# Belfius DIGIPASS 870 on Linux (OneSpan NativeBridge + Wine Shim)
-
-[![Platform: Linux](https://img.shields.io/badge/Platform-Linux-orange.svg)](https://kernel.org)
-[![Wine: 8.0+](https://img.shields.io/badge/Wine-8.0%2B%20%7C%209.0%2B%20%7C%2010.0%2B-blue.svg)](https://winehq.org)
-[![Hardware: DIGIPASS 870](https://img.shields.io/badge/Hardware-VASCO%20%2F%20OneSpan%20870-brightgreen.svg)](https://www.onespan.com)
-[![Authored by: AI](https://img.shields.io/badge/Authored%20by-AI%20Agent-purple.svg)](https://deepmind.google)
+# Wired Belfius log in fix for Linux
 
 > [!WARNING]
-> ### ⚠️ Disclaimer: 100% Developed by an AI Agent
+> ### Disclaimer: 100% Developed by an AI Agent
 > **I did not write this code, and I did not create this software.**
 >
 > This entire project—including the reverse-engineering analysis, the C interceptor shim (`pcsc_shim.c`), the automated installation scripts, the systemd services, and this documentation—was **100% developed by an AI agent** during an interactive debugging session.
