@@ -20,6 +20,7 @@ A turnkey, plug-and-play solution to run the **OneSpan (VASCO) DIGIPASS 870** sm
   - [3. Flatpak / Bottles Sandbox Confinement](#3-flatpak--bottles-sandbox-confinement)
 - [How the Fix Works](#how-the-fix-works)
 - [Prerequisites & Supported Distributions](#prerequisites--supported-distributions)
+- [Supported Web Browsers](#supported-web-browsers)
 - [Installation Tutorial](#installation-tutorial)
   - [Method A: Automated Installation (Recommended)](#method-a-automated-installation-recommended)
   - [Method B: Manual Installation](#method-b-manual-installation)
@@ -145,6 +146,33 @@ This project resolves every root cause cleanly and minimally:
 > pcsc_scan
 > ```
 > When you insert your bank card, it should output `Card state: Card inserted` and print the card's ATR string. Press `Ctrl+C` to exit.
+
+---
+
+## Supported Web Browsers
+
+Because the OneSpan NativeBridge communicates with your browser over standard local HTTP/WebSocket loopback (`127.0.0.1:42579` and `127.0.0.1:42580`), it is **completely browser-agnostic**. Any browser capable of accessing local loopback connections is supported.
+
+### Browser Compatibility Matrix
+
+| Browser | Engine / Core | Packaging Formats | Compatibility Status | Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| **Mozilla Firefox** | Gecko | Native (.deb/.rpm), Flatpak, Snap | **Fully Supported** | Default browser across most Linux distros |
+| **Google Chrome** | Chromium | Native (.deb/.rpm) | **Fully Supported** | Official Google repository builds |
+| **Zen Browser** | Gecko (Firefox) | Flatpak, Tarball, AppImage | **Fully Supported** | Modern Firefox-based power-user browser |
+| **Helium Browser** | WebEngine / Chromium | Native, Flatpak | **Fully Supported** | Lightweight privacy-focused browser |
+| **Brave** | Chromium | Native, Flatpak | **Fully Supported** | Works with default shield settings |
+| **Chromium** | Chromium | Native, Flatpak, Snap | **Fully Supported** | Open-source base browser |
+| **Microsoft Edge** | Chromium | Native (.deb/.rpm) | **Fully Supported** | Linux release |
+| **LibreWolf** | Gecko (Firefox) | Native, Flatpak, AppImage | **Fully Supported** | Hardened privacy browser |
+| **Floorp / Waterfox** | Gecko (Firefox) | Native, Flatpak, AppImage | **Fully Supported** | Customizable Firefox forks |
+| **Vivaldi / Opera** | Chromium | Native, Flatpak | **Fully Supported** | Feature-packed browsers |
+
+### Flatpak & Snap Compatibility Note
+Unlike direct smartcard token access (which is often blocked by container sandboxing), local HTTP/WebSocket loopback connections to `127.0.0.1` function out-of-the-box in Flatpak and Snap browsers without requiring any special sandbox permission tweaks (`--share=network` is enabled by default).
+
+### No Browser Extension Required
+Belfius's web application connects directly to the local bridge process via standard JavaScript `fetch()` and `WebSocket()` requests on localhost. **No browser extension or add-on is required.**
 
 ---
 
