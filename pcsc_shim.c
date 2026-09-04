@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <fcntl.h>
 
 #define SCARD_S_SUCCESS             0x00000000
 #define SCARD_E_INSUFFICIENT_BUFFER 0x80100008
@@ -17,8 +18,10 @@
 #define SCARD_AUTOALLOCATE_32       0xFFFFFFFFUL
 #define SCARD_AUTOALLOCATE_64       ((unsigned long)-1)
 
-static int debug_enabled = 1;
+/* Debugging disabled by default to prevent leaking smartcard metadata */
+static int debug_enabled = 0;
 static FILE *log_fp = NULL;
+static void *pcsc_handle = NULL;
 
 static void shim_log(const char *fmt, ...) {
     if (!debug_enabled) return;
@@ -26,8 +29,14 @@ static void shim_log(const char *fmt, ...) {
     va_start(args, fmt);
     if (!log_fp) {
         const char *log_path = getenv("PCSC_SHIM_LOG");
-        if (!log_path) log_path = "/tmp/pcsc_shim.log";
-        log_fp = fopen(log_path, "a");
+        if (log_path && log_path[0] != '\0') {
+            /* Open custom log file securely (O_NOFOLLOW prevents symlink attacks) */
+            int fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0600);
+            if (fd >= 0) {
+                log_fp = fdopen(fd, "a");
+            }
+        }
+        /* Default to stderr so systemd journal securely captures logs without world-readable /tmp files */
         if (!log_fp) log_fp = stderr;
     }
     fprintf(log_fp, "[PCSC_SHIM pid=%d] ", getpid());
@@ -37,22 +46,34 @@ static void shim_log(const char *fmt, ...) {
     va_end(args);
 }
 
-static void *get_real(const char *name) {
-    static void *h = NULL;
-    if (!h) {
-        h = dlopen("libpcsclite.so.1", RTLD_LAZY | RTLD_GLOBAL);
-        if (!h) {
-            shim_log("ERROR: dlopen(libpcsclite.so.1) failed: %s", dlerror());
-            return NULL;
-        }
-    }
-    return dlsym(h, name);
-}
-
+/* Thread-safe initialization run at library load time */
 __attribute__((constructor)) static void shim_init(void) {
     const char *dbg = getenv("PCSC_SHIM_DEBUG");
-    if (dbg && atoi(dbg) == 0) debug_enabled = 0;
-    shim_log("Initialized PC/SC Wine shim for process %d", getpid());
+    if (dbg && (strcmp(dbg, "1") == 0 || strcasecmp(dbg, "true") == 0)) {
+        debug_enabled = 1;
+    }
+
+    pcsc_handle = dlopen("libpcsclite.so.1", RTLD_LAZY | RTLD_GLOBAL);
+    if (!pcsc_handle) {
+        fprintf(stderr, "[PCSC_SHIM] ERROR: Failed to load libpcsclite.so.1: %s\n", dlerror());
+    } else {
+        shim_log("Initialized PC/SC Wine shim for process %d", getpid());
+    }
+}
+
+__attribute__((destructor)) static void shim_fini(void) {
+    if (log_fp && log_fp != stderr && log_fp != stdout) {
+        fclose(log_fp);
+        log_fp = NULL;
+    }
+}
+
+static void *get_real(const char *name) {
+    if (!pcsc_handle) {
+        pcsc_handle = dlopen("libpcsclite.so.1", RTLD_LAZY | RTLD_GLOBAL);
+        if (!pcsc_handle) return NULL;
+    }
+    return dlsym(pcsc_handle, name);
 }
 
 long SCardEstablishContext(unsigned long dwScope, const void *pv1, const void *pv2, unsigned long *phContext) {

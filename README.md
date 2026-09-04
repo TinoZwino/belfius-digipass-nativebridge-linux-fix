@@ -159,6 +159,11 @@ sudo systemctl enable --now pcscd
 
 ## Installation Tutorial
 
+> **Binary Verification**:
+> The official Belfius/OneSpan installer `digipass-nativebridge-installer.exe` has the following cryptographic hash:
+> - **SHA-256**: `e3c70d7fb4e7f5c388d301dcf82aea6c9070691f020a831a10aa6e691893bd27`
+> The installer script automatically verifies this hash before execution.
+
 ### Method A: Automated Installation (Recommended)
 
 1. Clone this repository:
@@ -224,7 +229,6 @@ If you prefer to perform the installation steps manually:
    Type=simple
    WorkingDirectory=%h/.wine/drive_c/users/YOUR_USER/AppData/Local/OneSpan/NativeBridge
    Environment="LD_PRELOAD=%h/.local/lib/libpcsc_wine_shim.so"
-   Environment="PCSC_SHIM_LOG=/tmp/pcsc_shim.log"
    Environment="WINEDEBUG=-all"
    ExecStart=/usr/bin/wine digipass-nativebridge.exe
    Restart=on-failure
@@ -273,12 +277,16 @@ ss -tulpn | grep 425
 ```
 
 ### Inspect Logs
-The shim logs smartcard interactions to `/tmp/pcsc_shim.log`:
+The service logs directly to your user systemd journal without exposing world-readable files:
 ```bash
-cat /tmp/pcsc_shim.log
+journalctl --user -u digipass-nativebridge.service -f
 ```
-Expected output during successful card detection:
+If you need to enable verbose smartcard shim debugging, set `PCSC_SHIM_DEBUG=1`:
+```bash
+PCSC_SHIM_DEBUG=1 digipass-nativebridge
 ```
+Expected debug output during successful card detection:
+```text
 [PCSC_SHIM pid=...] SCardConnect(reader='VASCO DIGIPASS 870...', share=2, prefProto=3)
 [PCSC_SHIM pid=...] SCardGetAttrib: Fixed SCARD_AUTOALLOCATE (0xffffffff -> -1)
 [PCSC_SHIM pid=...] SCardGetAttrib(...) -> ret=0x0, out_len=20

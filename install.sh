@@ -18,6 +18,7 @@ SHIM_LIB="$SHIM_LIB_DIR/libpcsc_wine_shim.so"
 BIN_DIR="$HOME/.local/bin"
 SERVICE_DIR="$HOME/.config/systemd/user"
 SERVICE_FILE="$SERVICE_DIR/digipass-nativebridge.service"
+OFFICIAL_SHA256="e3c70d7fb4e7f5c388d301dcf82aea6c9070691f020a831a10aa6e691893bd27"
 
 echo -e "${BOLD}====================================================${RESET}"
 echo -e "${BOLD}   Belfius DIGIPASS 870 / OneSpan NativeBridge      ${RESET}"
@@ -69,6 +70,12 @@ if [ -z "$BRIDGE_DIR" ]; then
     INSTALLER=$(find "$SCRIPT_DIR" "$HOME/Downloads" -maxdepth 2 -type f -name "digipass-nativebridge-installer.exe" 2>/dev/null | head -n 1)
     if [ -n "$INSTALLER" ]; then
         echo "Found installer at: $INSTALLER"
+        ACTUAL_SHA256=$(sha256sum "$INSTALLER" | awk '{print $1}')
+        if [ "$ACTUAL_SHA256" = "$OFFICIAL_SHA256" ]; then
+            echo -e "${GREEN}Installer integrity verified (SHA-256 match).${RESET}"
+        else
+            echo -e "${YELLOW}Notice: Installer SHA-256 is $ACTUAL_SHA256 (expected official Belfius $OFFICIAL_SHA256).${RESET}"
+        fi
         echo "Running Windows installer via Wine... (follow the prompt on screen)"
         wine "$INSTALLER"
         for d in "$HOME"/.wine/drive_c/users/*/AppData/Local/OneSpan/NativeBridge; do
@@ -99,11 +106,13 @@ if [ ! -f "$SHIM_SRC" ]; then
     exit 1
 fi
 
-gcc -shared -fPIC -O2 -o "$SHIM_LIB" "$SHIM_SRC" -ldl
+gcc -Wall -Wextra -shared -fPIC -O2 -o "$SHIM_LIB" "$SHIM_SRC" -ldl
 echo -e "${GREEN}Compiled shim to $SHIM_LIB${RESET}"
 
 # 5. Disable runaway watchdog monitor in Wine registry
 echo -e "${YELLOW}[5/6] Disabling buggy monitor watchdog in Wine registry...${RESET}"
+systemctl --user stop digipass-nativebridge.service 2>/dev/null || true
+wineserver -k 2>/dev/null || true
 killall -q digipass-nativebridge-monitor.exe 2>/dev/null || true
 killall -q digipass-nativebridge.exe 2>/dev/null || true
 wine reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v DigipassNativeBridge /f 2>/dev/null || true
@@ -111,7 +120,7 @@ wine reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v Dig
 # 6. Install systemd user service and CLI helper
 echo -e "${YELLOW}[6/6] Setting up systemd user service and command helper...${RESET}"
 mkdir -p "$BIN_DIR"
-cat << 'EOF' > "$BIN_DIR/digipass-nativebridge"
+cat << 'HELPER_EOF' > "$BIN_DIR/digipass-nativebridge"
 #!/usr/bin/env bash
 BRIDGE_DIR=""
 for d in "$HOME"/.wine/drive_c/users/*/AppData/Local/OneSpan/NativeBridge; do
@@ -130,13 +139,12 @@ fi
 killall -q digipass-nativebridge.exe 2>/dev/null || true
 cd "$BRIDGE_DIR"
 export LD_PRELOAD="$SHIM_LIB"
-export PCSC_SHIM_LOG="/tmp/pcsc_shim.log"
 exec /usr/bin/wine digipass-nativebridge.exe "$@"
-EOF
+HELPER_EOF
 chmod +x "$BIN_DIR/digipass-nativebridge"
 
 mkdir -p "$SERVICE_DIR"
-cat << EOF > "$SERVICE_FILE"
+cat << SERVICE_EOF > "$SERVICE_FILE"
 [Unit]
 Description=OneSpan DIGIPASS Native Bridge (Wine with PC/SC Shim)
 After=network.target
@@ -145,7 +153,6 @@ After=network.target
 Type=simple
 WorkingDirectory=$BRIDGE_DIR
 Environment="LD_PRELOAD=$SHIM_LIB"
-Environment="PCSC_SHIM_LOG=/tmp/pcsc_shim.log"
 Environment="WINEDEBUG=-all"
 ExecStart=/usr/bin/wine "$BRIDGE_DIR/digipass-nativebridge.exe"
 Restart=on-failure
@@ -155,7 +162,7 @@ KillMode=mixed
 
 [Install]
 WantedBy=default.target
-EOF
+SERVICE_EOF
 
 systemctl --user daemon-reload
 systemctl --user enable --now digipass-nativebridge.service
